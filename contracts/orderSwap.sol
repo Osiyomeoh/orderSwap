@@ -1,11 +1,9 @@
 pragma solidity ^0.8.0;
 
 import "@openzeppelin/contracts/token/ERC20/IERC20.sol";
-import "@openzeppelin/contracts/utils/Counters.sol";
 
 contract OrderSwap {
-    using Counters for Counters.Counter;
-    Counters.Counter private _orderIds;
+    uint256 private _orderIdCounter;
 
     struct Order {
         address seller;
@@ -14,12 +12,11 @@ contract OrderSwap {
         address tokenToBuy;
         uint256 amountToBuy;
         bool isActive;
-        uint256 createdAt;
     }
 
     mapping(uint256 => Order) public orders;
 
-    event OrderCreated(uint256 orderId, address seller, address tokenToSell, uint256 amountToSell, address tokenToBuy, uint256 amountToBuy, uint256 createdAt);
+    event OrderCreated(uint256 orderId, address seller, address tokenToSell, uint256 amountToSell, address tokenToBuy, uint256 amountToBuy);
     event OrderFulfilled(uint256 orderId, address buyer);
     event OrderCancelled(uint256 orderId);
 
@@ -27,10 +24,12 @@ contract OrderSwap {
         require(_tokenToSell != address(0) && _tokenToBuy != address(0), "Invalid token addresses");
         require(_amountToSell > 0 && _amountToBuy > 0, "Invalid amounts");
 
-        IERC20(_tokenToSell).transferFrom(msg.sender, address(this), _amountToSell);
+        IERC20 tokenToSell = IERC20(_tokenToSell);
+        require(tokenToSell.allowance(msg.sender, address(this)) >= _amountToSell, "Insufficient allowance for tokenToSell");
 
-        _orderIds.increment();
-        uint256 newOrderId = _orderIds.current();
+        tokenToSell.transferFrom(msg.sender, address(this), _amountToSell);
+
+        uint256 newOrderId = ++_orderIdCounter;
 
         orders[newOrderId] = Order({
             seller: msg.sender,
@@ -38,8 +37,7 @@ contract OrderSwap {
             amountToSell: _amountToSell,
             tokenToBuy: _tokenToBuy,
             amountToBuy: _amountToBuy,
-            isActive: true,
-            createdAt: block.timestamp
+            isActive: true
         });
 
         emit OrderCreated(newOrderId, msg.sender, _tokenToSell, _amountToSell, _tokenToBuy, _amountToBuy);
@@ -49,7 +47,10 @@ contract OrderSwap {
         Order storage order = orders[_orderId];
         require(order.isActive, "Order is not active");
 
-        IERC20(order.tokenToBuy).transferFrom(msg.sender, order.seller, order.amountToBuy);
+        IERC20 tokenToBuy = IERC20(order.tokenToBuy);
+        require(tokenToBuy.allowance(msg.sender, address(this)) >= order.amountToBuy, "Insufficient allowance for tokenToBuy");
+
+        tokenToBuy.transferFrom(msg.sender, order.seller, order.amountToBuy);
         IERC20(order.tokenToSell).transfer(msg.sender, order.amountToSell);
 
         order.isActive = false;
